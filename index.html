@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Neural Art Classifier - Descubre el Arte</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.9.0"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --primary: #6366f1;
+      --secondary: #8b5cf6;
+      --accent: #f59e0b;
+      --dark: #0f0f23;
+      --dark-card: #1a1a2e;
+      --glass: rgba(255, 255, 255, 0.1);
+      --text-primary: #ffffff;
+      --text-secondary: #a1a1aa;
+      --success: #10b981;
+      --error: #ef4444;
+      --gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--dark);
+      color: var(--text-primary);
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    /* Canvas de fondo con partículas */
+    #background-canvas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: -1;
+      opacity: 0.6;
+    }
+
+    /* Contenedor principal con efecto glassmorphism */
+    .main-container {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      position: relative;
+    }
+
+    .glass-card {
+      background: rgba(26, 26, 46, 0.8);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 24px;
+      padding: 3rem;
+      max-width: 900px;
+      width: 100%;
+      box-shadow: 
+        0 25px 50px -12px rgba(0, 0, 0, 0.5),
+        0 0 0 1px rgba(255, 255, 255, 0.05);
+      position: relative;
+      overflow: hidden;
+      animation: cardFloat 6s ease-in-out infinite;
+    }
+
+    @keyframes cardFloat {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-10px); }
+    }
+
+    /* Efecto de brillo animado */
+    .glass-card::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: conic-gradient(from 0deg, transparent, rgba(99, 102, 241, 0.3), transparent);
+      animation: rotate 10s linear infinite;
+      z-index: -1;
+    }
+
+    @keyframes rotate {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Título principal */
+    .main-title {
+      font-family: 'Orbitron', monospace;
+      font-size: clamp(2.5rem, 5vw, 4rem);
+      font-weight: 900;
+      text-align: center;
+      margin-bottom: 1rem;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6, #f59e0b);
+      background-size: 300% 300%;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: gradientShift 3s ease-in-out infinite;
+      position: relative;
+    }
+
+    @keyframes gradientShift {
+      0%, 100% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+    }
+
+    .subtitle {
+      text-align: center;
+      font-size: 1.2rem;
+      color: var(--text-secondary);
+      margin-bottom: 3rem;
+      font-weight: 300;
+    }
+
+    /* Zona de carga con efectos */
+    .upload-zone {
+      position: relative;
+      border: 2px dashed rgba(99, 102, 241, 0.5);
+      border-radius: 20px;
+      padding: 3rem;
+      text-align: center;
+      background: rgba(99, 102, 241, 0.05);
+      margin: 2rem 0;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      cursor: pointer;
+      overflow: hidden;
+    }
+
+    .upload-zone::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+      transition: left 0.6s;
+    }
+
+    .upload-zone:hover::before {
+      left: 100%;
+    }
+
+    .upload-zone:hover {
+      border-color: var(--primary);
+      background: rgba(99, 102, 241, 0.1);
+      transform: scale(1.02);
+    }
+
+    .upload-zone.dragover {
+      border-color: var(--accent);
+      background: rgba(245, 158, 11, 0.1);
+      transform: scale(1.05);
+    }
+
+    #imageUpload {
+      display: none;
+    }
+
+    .upload-button {
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      color: white;
+      border: none;
+      padding: 1rem 2rem;
+      border-radius: 50px;
+      font-size: 1.1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .upload-button::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+      transition: left 0.3s;
+    }
+
+    .upload-button:hover::before {
+      left: 100%;
+    }
+
+    .upload-button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 20px 40px rgba(99, 102, 241, 0.4);
+    }
+
+    /* Contenedor de imagen con efectos 3D */
+    .image-container {
+      perspective: 1000px;
+      margin: 2rem 0;
+      display: flex;
+      justify-content: center;
+    }
+
+    #inputImage {
+      max-width: 400px;
+      max-height: 400px;
+      border-radius: 20px;
+      box-shadow: 
+        0 25px 50px rgba(0, 0, 0, 0.3),
+        0 0 0 1px rgba(255, 255, 255, 0.1);
+      transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+      transform-style: preserve-3d;
+      display: none;
+    }
+
+    #inputImage.show {
+      display: block;
+      animation: imageReveal 0.8s ease-out;
+    }
+
+    @keyframes imageReveal {
+      0% {
+        opacity: 0;
+        transform: rotateY(-90deg) scale(0.8);
+      }
+      100% {
+        opacity: 1;
+        transform: rotateY(0deg) scale(1);
+      }
+    }
+
+    #inputImage:hover {
+      transform: rotateY(5deg) rotateX(5deg) scale(1.05);
+    }
+
+    /* Resultados con animaciones */
+    .result-container {
+      margin-top: 2rem;
+      padding: 2rem;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
+      opacity: 0;
+      transform: translateY(20px);
+      transition: all 0.5s ease;
+    }
+
+    .result-container.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .result-title {
+      font-family: 'Orbitron', monospace;
+      font-size: 1.5rem;
+      color: var(--accent);
+      margin-bottom: 1rem;
+      text-align: center;
+    }
+
+    .result-content {
+      font-size: 1.3rem;
+      text-align: center;
+      line-height: 1.6;
+    }
+
+    /* Barra de progreso animada */
+    .progress-container {
+      width: 100%;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+      margin: 1rem 0;
+      overflow: hidden;
+    }
+
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--primary), var(--accent));
+      border-radius: 2px;
+      transform: translateX(-100%);
+      transition: transform 0.3s ease;
+    }
+
+    .progress-bar.loading {
+      animation: progressPulse 1.5s ease-in-out infinite;
+      transform: translateX(0);
+    }
+
+    @keyframes progressPulse {
+      0%, 100% { opacity: 0.6; }
+      50% { opacity: 1; }
+    }
+
+    /* Estados de carga */
+    .loading-spinner {
+      width: 50px;
+      height: 50px;
+      border: 3px solid rgba(99, 102, 241, 0.3);
+      border-top: 3px solid var(--primary);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 1rem auto;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Efectos de partículas */
+    .particle {
+      position: absolute;
+      width: 4px;
+      height: 4px;
+      background: var(--primary);
+      border-radius: 50%;
+      pointer-events: none;
+      animation: floatParticle 3s ease-in-out infinite;
+    }
+
+    @keyframes floatParticle {
+      0%, 100% {
+        transform: translateY(0px) rotate(0deg);
+        opacity: 0;
+      }
+      50% {
+        transform: translateY(-100px) rotate(180deg);
+        opacity: 1;
+      }
+    }
+
+    /* Responsivo */
+    @media (max-width: 768px) {
+      .glass-card {
+        padding: 2rem;
+        margin: 1rem;
+      }
+      
+      .upload-zone {
+        padding: 2rem;
+      }
+    }
+
+    /* Efectos adicionales */
+    .glow {
+      animation: glow 2s ease-in-out infinite alternate;
+    }
+
+    @keyframes glow {
+      from {
+        box-shadow: 0 0 20px rgba(99, 102, 241, 0.5);
+      }
+      to {
+        box-shadow: 0 0 30px rgba(99, 102, 241, 0.8), 0 0 40px rgba(99, 102, 241, 0.6);
+      }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="background-canvas"></canvas>
+  
+  <div class="main-container">
+    <div class="glass-card">
+      <h1 class="main-title">NEURAL ART</h1>
+      <p class="subtitle">Descubre el estilo artístico oculto en cada obra maestra</p>
+      
+      <div class="upload-zone" id="uploadZone">
+        <div class="upload-icon" style="font-size: 3rem; margin-bottom: 1rem;">🎨</div>
+        <button class="upload-button" onclick="document.getElementById('imageUpload').click()">
+          Subir Obra de Arte
+        </button>
+        <p style="margin-top: 1rem; color: var(--text-secondary);">
+          Arrastra y suelta tu imagen aquí o haz clic para seleccionar
+        </p>
+        <input type="file" id="imageUpload" accept="image/*">
+      </div>
+
+      <div class="image-container">
+        <img id="inputImage" alt="Imagen cargada">
+      </div>
+
+      <div class="result-container" id="resultContainer">
+        <div class="loading-spinner" id="loadingSpinner" style="display: none;"></div>
+        <div class="progress-container">
+          <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <h3 class="result-title">Estado del Sistema</h3>
+        <div class="result-content" id="resultContent">
+          Inicializando sistema neural...
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Variables globales
+    let model;
+    let scene, camera, renderer, particles = [];
+    const imageSize = 224;
+
+    // Inicializar fondo de partículas con Three.js
+    function initBackground() {
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+      renderer = new THREE.WebGLRenderer({ 
+        canvas: document.getElementById('background-canvas'),
+        alpha: true 
+      });
+      
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      
+      // Crear partículas
+      const particleGeometry = new THREE.BufferGeometry();
+      const particleCount = 100;
+      const positions = new Float32Array(particleCount * 3);
+      
+      for(let i = 0; i < particleCount * 3; i++) {
+        positions[i] = (Math.random() - 0.5) * 20;
+      }
+      
+      particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      
+      const particleMaterial = new THREE.PointsMaterial({
+        color: 0x6366f1,
+        size: 0.05,
+        transparent: true,
+        opacity: 0.6
+      });
+      
+      const particleSystem = new THREE.Points(particleGeometry, particleMaterial);
+      scene.add(particleSystem);
+      
+      camera.position.z = 5;
+      
+      // Animación
+      function animate() {
+        requestAnimationFrame(animate);
+        particleSystem.rotation.x += 0.001;
+        particleSystem.rotation.y += 0.002;
+        renderer.render(scene, camera);
+      }
+      animate();
+    }
+
+    // Funciones de UI
+    function showMessage(message, type = 'info') {
+      const resultContainer = document.getElementById('resultContainer');
+      const resultContent = document.getElementById('resultContent');
+      const spinner = document.getElementById('loadingSpinner');
+      const progressBar = document.getElementById('progressBar');
+      
+      resultContainer.classList.add('show');
+      
+      if (type === 'loading') {
+        spinner.style.display = 'block';
+        progressBar.classList.add('loading');
+        resultContent.innerHTML = message;
+      } else {
+        spinner.style.display = 'none';
+        progressBar.classList.remove('loading');
+        
+        setTimeout(() => {
+          resultContent.innerHTML = message;
+          if (type === 'success') {
+            resultContent.style.color = 'var(--success)';
+            createParticleExplosion();
+          } else if (type === 'error') {
+            resultContent.style.color = 'var(--error)';
+          } else {
+            resultContent.style.color = 'var(--text-primary)';
+          }
+        }, 300);
+      }
+    }
+
+    // Efecto de partículas al obtener resultado
+    function createParticleExplosion() {
+      const container = document.querySelector('.glass-card');
+      for(let i = 0; i < 20; i++) {
+        const particle = document.createElement('div');
+        particle.className = 'particle';
+        particle.style.left = Math.random() * 100 + '%';
+        particle.style.animationDelay = Math.random() * 2 + 's';
+        container.appendChild(particle);
+        
+        setTimeout(() => particle.remove(), 3000);
+      }
+    }
+
+    // Cargar modelo
+    async function loadModel() {
+      try {
+        showMessage('Cargando red neuronal...', 'loading');
+        model = await tf.loadLayersModel('model.json');
+        showMessage('🚀 Sistema neural listo para analizar arte', 'success');
+      } catch (error) {
+        showMessage('⚠️ Error al cargar el modelo. Verifica los archivos.', 'error');
+        console.error('Error loading model:', error);
+      }
+    }
+
+    // Manejo de archivos
+    function setupFileHandling() {
+      const uploadZone = document.getElementById('uploadZone');
+      const imageUpload = document.getElementById('imageUpload');
+      const inputImage = document.getElementById('inputImage');
+
+      // Drag & Drop
+      uploadZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadZone.classList.add('dragover');
+      });
+
+      uploadZone.addEventListener('dragleave', () => {
+        uploadZone.classList.remove('dragover');
+      });
+
+      uploadZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadZone.classList.remove('dragover');
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+          handleFile(files[0]);
+        }
+      });
+
+      // Click upload
+      imageUpload.addEventListener('change', (e) => {
+        if (e.target.files[0]) {
+          handleFile(e.target.files[0]);
+        }
+      });
+    }
+
+    // Procesar archivo
+    function handleFile(file) {
+      const img = document.getElementById('inputImage');
+      img.src = URL.createObjectURL(file);
+      
+      img.onload = async () => {
+        img.classList.add('show');
+        img.classList.add('glow');
+        
+        showMessage('🔬 Analizando composición artística...', 'loading');
+        
+        try {
+          // Simular tiempo de procesamiento para efectos visuales
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          // Preprocesar imagen
+          const tensor = tf.browser.fromPixels(img)
+            .resizeNearestNeighbor([imageSize, imageSize])
+            .toFloat()
+            .div(255.0)
+            .expandDims();
+
+          const prediction = await model.predict(tensor).data();
+          const response = await fetch('metadata.json');
+          const metadata = await response.json();
+          const labels = metadata.labels;
+
+          // Obtener resultado
+          const topIndex = prediction.indexOf(Math.max(...prediction));
+          const label = labels[topIndex];
+          const confidence = (prediction[topIndex] * 100).toFixed(1);
+
+          // Mostrar resultado con estilo
+          const resultHTML = `
+            <div style="font-size: 1.5rem; margin-bottom: 1rem;">
+              ✨ <strong>${label}</strong>
+            </div>
+            <div style="color: var(--accent); font-size: 1.2rem;">
+              Confianza: ${confidence}%
+            </div>
+            <div style="margin-top: 1rem; font-size: 0.9rem; color: var(--text-secondary);">
+              Análisis completado con éxito
+            </div>
+          `;
+          
+          showMessage(resultHTML, 'success');
+          tensor.dispose();
+          
+        } catch (error) {
+          showMessage('❌ Error al procesar la imagen. Intenta con otra obra.', 'error');
+          console.error('Error processing image:', error);
+        }
+      };
+    }
+
+    // Responsivo para canvas
+    function onWindowResize() {
+      if (camera && renderer) {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+    }
+
+    // Inicialización
+    window.addEventListener('load', () => {
+      initBackground();
+      loadModel();
+      setupFileHandling();
+      window.addEventListener('resize', onWindowResize);
+    });
+  </script>
+</body>
+</html>
